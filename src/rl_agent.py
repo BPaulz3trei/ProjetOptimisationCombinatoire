@@ -80,3 +80,115 @@ class QLearningAgent:
             stag = 2
 
         return (prog, qualite, stag)
+    def choose_action(self, state):
+        """
+        Choisit une action selon la politique epsilon-greedy.
+
+        Avec probabilité epsilon  → action aléatoire (exploration)
+        Avec probabilité 1-epsilon → meilleure action connue (exploitation)
+
+        Paramètres
+        ----------
+        state : tuple (prog, qualite, stag) retourné par encode_state()
+
+        Retourne
+        --------
+        action_idx : int, index de l'action choisie dans ACTIONS
+        """
+        if self.rng.random() < self.epsilon:
+            # Exploration : action aléatoire
+            action_idx = int(self.rng.integers(0, N_ACTIONS))
+        else:
+            # Exploitation : meilleure action connue pour cet état
+            q_values = self._get_q_values(state)
+            action_idx = int(np.argmax(q_values))
+
+        # Enregistrer pour analyse
+        self.action_history.append(ACTIONS[action_idx])
+
+        return action_idx
+        
+    def compute_reward(self, prev_best, new_best, stagnation):
+        """
+        Calcule la récompense reçue après une action.
+
+        Paramètres
+        ----------
+        prev_best  : meilleure distance AVANT l'action
+        new_best   : meilleure distance APRÈS l'action
+        stagnation : nb d'itérations sans amélioration
+
+        Retourne
+        --------
+        reward : float
+        """
+        if new_best < prev_best:
+            # L'action a permis une amélioration → bonne action
+            reward = 1.0
+        elif stagnation > 10:
+            # ACO est bloqué depuis trop longtemps → mauvaise action
+            reward = -0.5
+        else:
+            # Ni amélioration ni stagnation forte → neutre
+            reward = 0.0
+
+        self.reward_history.append(reward)
+        return reward
+
+    def update(self, state, action_idx, reward, next_state):
+        """
+        Met à jour la table Q avec la formule Q-Learning :
+        Q(s,a) ← Q(s,a) + α × [r + γ × max Q(s',a') − Q(s,a)]
+
+        Paramètres
+        ----------
+        state      : état AVANT l'action (tuple)
+        action_idx : index de l'action choisie
+        reward     : récompense reçue
+        next_state : état APRÈS l'action (tuple)
+        """
+        q_values      = self._get_q_values(state)
+        q_values_next = self._get_q_values(next_state)
+
+        # Valeur Q actuelle
+        q_current = q_values[action_idx]
+
+        # Meilleure valeur Q atteignable depuis le prochain état
+        q_next_max = np.max(q_values_next)
+
+        # Formule de mise à jour Q-Learning
+        q_values[action_idx] = q_current + self.alpha * (
+            reward + self.gamma * q_next_max - q_current
+        )
+
+    def apply_action(self, action_idx, rho, beta):
+        """
+        Traduit l'action choisie en modification concrète de rho et beta.
+
+        Paramètres
+        ----------
+        action_idx : int, index de l'action dans ACTIONS
+        rho        : valeur actuelle du taux d'évaporation
+        beta       : valeur actuelle du poids heuristique
+
+        Retourne
+        --------
+        new_rho, new_beta : float, paramètres mis à jour et bornés
+        """
+        action = ACTIONS[action_idx]
+
+        if action == "increase_rho":
+            rho = rho + DELTA_RHO
+        elif action == "decrease_rho":
+            rho = rho - DELTA_RHO
+        elif action == "increase_beta":
+            beta = beta + DELTA_BETA
+        elif action == "decrease_beta":
+            beta = beta - DELTA_BETA
+        # "do_nothing" → on ne touche à rien
+
+        # Bornes : on empêche des valeurs aberrantes
+        rho  = float(np.clip(rho,  RHO_MIN,  RHO_MAX))
+        beta = float(np.clip(beta, BETA_MIN, BETA_MAX))
+
+        return rho, beta
